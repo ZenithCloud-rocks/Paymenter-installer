@@ -1,73 +1,98 @@
 #!/bin/bash
 
+# Define variables
+DOMAIN="your_domain.com"
+DB_NAME="paymenter"
+DB_USER="paymenter"
+DB_PASSWORD="yourPassword"
+LOGO="
+\033[1;36m  ____            _        _       _       
+ |  _ \ ___   ___| | _____| |_ ___| |_ ___ 
+ | |_) / _ \ / __| |/ / _ \ __/ __| __/ __|
+ |  __/ (_) | (__|   <  __/ || (__| |_\__ \\
+ |_|   \___/ \___|_|\_\___|\__\___|\__|___/
+\033[0m"
+
+# Print logo
+echo -e "$LOGO"
+
 # Function to install Paymenter
 install_paymenter() {
-    echo "Starting Paymenter installation..."
-
-    # Prompt user for configuration options
-    read -p "Enter database name: " dbname
-    read -p "Enter database username: " dbuser
-    read -sp "Enter database password: " dbpass
-    echo
-    read -p "Enter domain name: " domain
+    # Update system packages
+    echo -e "\033[1;34mUpdating system packages...\033[0m"
+    apt update && apt upgrade -y
 
     # Install dependencies
-    echo "Installing dependencies..."
-    sudo apt -y install software-properties-common curl apt-transport-https ca-certificates gnupg
-    sudo LC_ALL=C.UTF-8 add-apt-repository -y ppa:ondrej/php
-    curl -sS https://downloads.mariadb.com/MariaDB/mariadb_repo_setup | sudo bash -s -- --mariadb-server-version="mariadb-10.11"
-    sudo apt update
-    sudo apt -y install php8.2 php8.2-{common,cli,gd,mysql,mbstring,bcmath,xml,fpm,curl,zip} mariadb-server nginx tar unzip git redis-server
+    echo -e "\033[1;34mInstalling dependencies...\033[0m"
+    apt -y install software-properties-common curl apt-transport-https ca-certificates gnupg
+    LC_ALL=C.UTF-8 add-apt-repository -y ppa:ondrej/php
+    apt update
+    apt -y install php8.2 php8.2-{common,cli,gd,mysql,mbstring,bcmath,xml,fpm,curl,zip} mariadb-server nginx tar unzip git redis-server
 
     # Install Composer
-    echo "Installing Composer..."
+    echo -e "\033[1;34mInstalling Composer...\033[0m"
     curl -sS https://getcomposer.org/installer | sudo php -- --install-dir=/usr/local/bin --filename=composer
 
-    # Download the code
-    echo "Downloading Paymenter..."
-    sudo mkdir -p /var/www/paymenter
-    sudo chown -R $USER:$USER /var/www/paymenter
+    # Clone the Paymenter repo
+    echo -e "\033[1;34mCloning Paymenter repository...\033[0m"
+    mkdir /var/www/paymenter
     cd /var/www/paymenter
     curl -Lo paymenter.tar.gz https://github.com/paymenter/paymenter/releases/latest/download/paymenter.tar.gz
     tar -xzvf paymenter.tar.gz
     chmod -R 755 storage/* bootstrap/cache/
 
-    # Install & Setup Database
-    echo "Setting up database..."
-    sudo mysql -u root -p$dbpass -e "CREATE DATABASE IF NOT EXISTS $dbname; \
-                                     CREATE USER IF NOT EXISTS '$dbuser'@'localhost' IDENTIFIED BY '$dbpass'; \
-                                     GRANT ALL PRIVILEGES ON $dbname.* TO '$dbuser'@'localhost'; \
-                                     FLUSH PRIVILEGES;"
+    # Setup database
+    echo -e "\033[1;34mSetting up database...\033[0m"
+    mysql -u root -p -e "CREATE DATABASE $DB_NAME;"
+    mysql -u root -p -e "CREATE USER '$DB_USER'@'127.0.0.1' IDENTIFIED BY '$DB_PASSWORD';"
+    mysql -u root -p -e "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'127.0.0.1' WITH GRANT OPTION;"
 
-    # Environment Configuration
-    echo "Configuring environment..."
+    # Copy environment file and generate application key
+    echo -e "\033[1;34mConfiguring environment...\033[0m"
     cp .env.example .env
-    sed -i "s/DB_DATABASE=.*/DB_DATABASE=$dbname/" .env
-    sed -i "s/DB_USERNAME=.*/DB_USERNAME=$dbuser/" .env
-    sed -i "s/DB_PASSWORD=.*/DB_PASSWORD=$dbpass/" .env
-    sed -i "s|APP_URL=.*|APP_URL=http://$domain|" .env
     composer install --no-dev --optimize-autoloader
     php artisan key:generate --force
     php artisan storage:link
 
-    # Database Setup
-    echo "Setting up database tables..."
+    # Configure database connection
+    echo -e "\033[1;34mConfiguring database connection...\033[0m"
+    sed -i "s/DB_DATABASE=.*/DB_DATABASE=$DB_NAME/" .env
+    sed -i "s/DB_USERNAME=.*/DB_USERNAME=$DB_USER/" .env
+    sed -i "s/DB_PASSWORD=.*/DB_PASSWORD=$DB_PASSWORD/" .env
+
+    # Run migrations and seed data
+    echo -e "\033[1;34mRunning migrations and seeding data...\033[0m"
     php artisan migrate --force --seed
 
-    # Add The First User
-    echo "Creating admin user..."
+    # Create administrative user
+    echo -e "\033[1;34mCreating administrative user...\033[0m"
     php artisan p:user:create
 
-    # Webserver configuration
-    echo "Configuring Nginx..."
-    sudo tee /etc/nginx/sites-available/paymenter.conf > /dev/null <<EOF
+    # Install Let's Encrypt SSL
+    echo -e "\033[1;34mInstalling Let's Encrypt SSL certificate...\033[0m"
+    apt -y install certbot python3-certbot-nginx
+    certbot --nginx -d $DOMAIN
+
+    # Setup nginx configuration
+    echo -e "\033[1;34mConfiguring Nginx...\033[0m"
+    cat > /etc/nginx/sites-available/paymenter.conf <<EOF
 server {
     listen 80;
     listen [::]:80;
-    server_name $domain;
+    server_name $DOMAIN;
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name $DOMAIN;
     root /var/www/paymenter/public;
 
     index index.php;
+
+    ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
 
     location / {
         try_files \$uri \$uri/ /index.php?\$query_string;
@@ -80,19 +105,21 @@ server {
 }
 EOF
 
-    sudo ln -s /etc/nginx/sites-available/paymenter.conf /etc/nginx/sites-enabled/
-    sudo systemctl restart nginx
+    # Enable site and restart nginx
+    ln -s /etc/nginx/sites-available/paymenter.conf /etc/nginx/sites-enabled/
+    systemctl restart nginx
 
     # Fix permissions
-    sudo chown -R www-data:www-data /var/www/paymenter/*
+    echo -e "\033[1;34mFixing permissions...\033[0m"
+    chown -R www-data:www-data /var/www/paymenter/*
 
-    # Cronjob
-    echo "Setting up cronjob..."
-    (crontab -l ; echo "* * * * * php /var/www/paymenter/artisan schedule:run >> /dev/null 2>&1") | sort - | uniq - | crontab -
+    # Setup cronjob
+    echo -e "\033[1;34mSetting up cronjob...\033[0m"
+    echo "* * * * * php /var/www/paymenter/artisan schedule:run >> /dev/null 2>&1" | sudo crontab -
 
-    # Create Queue Worker
-    echo "Setting up queue worker..."
-    sudo tee /etc/systemd/system/paymenter.service > /dev/null <<EOF
+    # Create queue worker service
+    echo -e "\033[1;34mCreating queue worker service...\033[0m"
+    cat > /etc/systemd/system/paymenter.service <<EOF
 [Unit]
 Description=Paymenter Queue Worker
 
@@ -109,52 +136,29 @@ RestartSec=5s
 WantedBy=multi-user.target
 EOF
 
-    sudo systemctl enable --now paymenter.service
+    # Enable and start queue worker service
+    systemctl enable --now paymenter.service
 
-    echo "Paymenter installation completed successfully!"
+    echo -e "\033[1;32mPaymenter installation completed successfully!\033[0m"
 }
 
 # Function to uninstall Paymenter
 uninstall_paymenter() {
-    echo "Starting Paymenter uninstallation..."
+    # Stop and disable queue worker service
+    systemctl stop paymenter.service
+    systemctl disable paymenter.service
+
+    # Remove queue worker service file
+    rm -f /etc/systemd/system/paymenter.service
 
     # Remove Nginx configuration
-    sudo rm /etc/nginx/sites-enabled/paymenter.conf
-    sudo systemctl restart nginx
+    rm -f /etc/nginx/sites-available/paymenter.conf
+    rm -f /etc/nginx/sites-enabled/paymenter.conf
 
-    # Remove Queue Worker service
-    sudo systemctl disable --now paymenter.service
-    sudo rm /etc/systemd/system/paymenter.service
+    # Remove Let's Encrypt SSL certificate
+    certbot delete --cert-name $DOMAIN
 
-    # Remove database
-    read -p "Enter database name to delete: " dbname
-    read -p "Enter database username: " dbuser
-    read -sp "Enter database password: " dbpass
-    echo
-    sudo mysql -u $dbuser -p$dbpass -e "DROP DATABASE IF EXISTS $dbname; DROP USER IF EXISTS '$dbuser'@'localhost';"
-
-    # Remove installation directory
-    sudo rm -rf /var/www/paymenter
-
-    echo "Paymenter uninstallation completed successfully!"
-}
-
-# Display menu options
-echo "Paymenter Installer"
-echo "1. Install Paymenter"
-echo "2. Uninstall Paymenter"
-read -p "Enter your choice: " choice
-
-# Handle user's choice
-case $choice in
-    1)
-        install_paymenter
-        ;;
-    2)
-        uninstall_paymenter
-        ;;
-    *)
-        echo "Invalid choice. Exiting."
-        exit 1
-        ;;
-esac
+    # Drop database and user
+    mysql -u root -p -e "DROP DATABASE IF EXISTS $DB_NAME;"
+    mysql -u root -p -e "DROP USER IF EXISTS '$
+    
