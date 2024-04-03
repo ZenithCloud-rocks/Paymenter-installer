@@ -160,5 +160,26 @@ uninstall_paymenter() {
 
     # Drop database and user
     mysql -u root -p -e "DROP DATABASE IF EXISTS $DB_NAME;"
-    mysql -u root -p -e "DROP USER IF EXISTS '$
-    
+    mysql -u root -p -e "DROP USER IF EXISTS '$DB_USER'@'127.0.0.1';"
+
+    # Remove Paymenter directory
+    rm -rf /var/www/paymenter
+
+    echo -e "\033[1;32mPaymenter has been successfully uninstalled!\033[0m"
+}
+
+# Main menu
+echo -e "\033[1;32mWelcome to the Paymenter installation/uninstallation script!\033[0m"
+echo "Please select an option:"
+echo "1. Install Paymenter"
+echo "2. Uninstall Paymenter"
+read -p "Enter your choice (1 or 2): " choice
+
+# Execute selected option
+case $choice in
+    1) install_paymenter ;;
+    2) uninstall_paymenter ;;
+    *) echo -e "\033[1;31mInvalid choice. Exiting...\033[0m" ;;
+esac
+
+exit 0
