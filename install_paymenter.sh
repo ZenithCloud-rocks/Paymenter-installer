@@ -126,11 +126,12 @@ uninstall_paymenter() {
     sudo systemctl disable --now paymenter.service
     sudo rm /etc/systemd/system/paymenter.service
 
-    # Source the .env file to extract database information
-    source /var/www/paymenter/.env
-
     # Remove database
-    sudo mysql -u $DB_USERNAME -p$DB_PASSWORD -e "DROP DATABASE IF EXISTS $DB_DATABASE; DROP USER IF EXISTS '$DB_USERNAME'@'localhost';"
+    read -p "Enter database name to delete: " dbname
+    read -p "Enter database username: " dbuser
+    read -sp "Enter database password: " dbpass
+    echo
+    sudo mysql -u $dbuser -p$dbpass -e "DROP DATABASE IF EXISTS $dbname; DROP USER IF EXISTS '$dbuser'@'localhost';"
 
     # Remove installation directory
     sudo rm -rf /var/www/paymenter
