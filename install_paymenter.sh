@@ -1,16 +1,5 @@
 #!/bin/bash
 
-# Prompt the user for domain name
-read -p "Enter your domain name (e.g., example.com): " DOMAIN
-
-# Prompt the user for database name
-read -p "Enter your database name: " DB_NAME
-
-# Prompt the user for database username
-read -p "Enter your database username: " DB_USER
-
-# Prompt the user for database password (silent input)
-read -s -p "Enter your database password: " DB_PASSWORD
 
 # Define logo
 LOGO="
@@ -23,6 +12,20 @@ LOGO="
 
 # Print logo
 echo -e "$LOGO"
+
+
+# Prompt the user for domain name
+read -p "Enter your domain name (e.g., example.com): " DOMAIN
+
+# Prompt the user for database name
+read -p "Enter your database name: " DB_NAME
+
+# Prompt the user for database username
+read -p "Enter your database username: " DB_USER
+
+# Prompt the user for database password (silent input)
+read -s -p "Enter your database password: " DB_PASSWORD
+
 
 # Function to install Paymenter
 install_paymenter() {
